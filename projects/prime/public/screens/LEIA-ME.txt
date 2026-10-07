@@ -1,0 +1,1 @@
+Prints do app aqui (PNG, sem acento e sem espaço no nome). Veja docs/CAPTURA-DE-TELAS.md.
