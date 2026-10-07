@@ -18,6 +18,7 @@ import { ScreenImage } from './components/ScreenImage';
 import { TextBlock } from './components/TextBlock';
 import { TapIndicator } from './components/TapIndicator';
 import { useProjectFonts } from './fonts';
+import { Audio, staticFile } from 'remotion';
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 
@@ -73,7 +74,7 @@ const SceneBlock: React.FC<{
     <AbsoluteFill style={{ opacity }}>
       <PhoneFrame offsetY={rise}>
         <AbsoluteFill style={screenStyle}>
-          <ScreenImage screen={scene.screen} label={scene.title} />
+          <ScreenImage screen={scene.screen} video={scene.video} label={scene.title} clock={frame} />
         </AbsoluteFill>
         {!frozen &&
           scene.taps?.map((tap, i) => <TapIndicator key={i} tap={tap} fps={fps} localFrame={frame} />)}
@@ -96,6 +97,7 @@ export const ShowcaseVideo: React.FC = () => {
   const { fps } = useVideoConfig();
   const cine = config.cinematic.enabled;
   const xf = cine ? Math.round(config.cinematic.crossfade * fps) : 0;
+  const loop = config.mode === 'tv';
 
   const durations = scenes.map((s) => Math.round(s.seconds * fps));
   const total = durations.reduce((a, b) => a + b, 0);
@@ -122,7 +124,8 @@ export const ShowcaseVideo: React.FC = () => {
                 index={i}
                 length={length}
                 headIn={headIn}
-                tailOut={xf}
+                // Em apresentação a última cena fica até o fim; só em loop ela cruza de volta para a primeira
+                tailOut={!loop && i === scenes.length - 1 ? 0 : xf}
               />
             </Sequence>
           );
@@ -133,7 +136,7 @@ export const ShowcaseVideo: React.FC = () => {
           travada no seu estado inicial. No frame final ela está exatamente
           como no frame zero, então a volta é invisível.
         */}
-        {xf > 0 && (
+        {loop && xf > 0 && (
           <Sequence from={total - xf} durationInFrames={xf}>
             <SceneBlock
               scene={scenes[0]}
@@ -148,6 +151,10 @@ export const ShowcaseVideo: React.FC = () => {
 
         <GlassSweep total={total} />
       </Camera>
+
+      {config.audio.file && (
+        <Audio src={staticFile(config.audio.file)} volume={config.audio.volume} loop />
+      )}
 
       <Vignette />
       <Letterbox />

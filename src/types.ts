@@ -9,7 +9,16 @@ export type LogoPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-ri
 export type FontFile = { family: string; file: string; weight?: number };
 
 /** Configuração completa (já com os padrões aplicados). */
+export type Mode = 'tv' | 'apresentacao';
+
 export type ShowcaseConfig = {
+  /**
+   * 'tv'           loop contínuo sem ninguém operando (TV de evento/loja, pen drive).
+   *                Aplica as regras de TV: loop que fecha, margem segura, texto ≥ 34px.
+   * 'apresentacao' toca uma vez do começo ao fim (reunião, proposta, redes, site).
+   *                Sem loop e sem as restrições de TV; aceita abertura/encerramento e trilha.
+   */
+  mode: Mode;
   brand: {
     accent: string;
     accentSoft: string;
@@ -50,6 +59,8 @@ export type ShowcaseConfig = {
     letterbox: number | null;
   };
   logo: { file: string | undefined; height: number; position: LogoPosition };
+  /** Trilha sonora opcional (MP3/WAV/M4A em public/). Em modo 'tv' o vídeo sai mudo se não houver. */
+  audio: { file: string | undefined; volume: number };
   labels: {
     /** Texto do placeholder enquanto a tela real não foi exportada */
     placeholder: string;
@@ -77,8 +88,13 @@ export type Tap = {
 
 export type Scene = {
   id: string;
-  /** Nome do arquivo dentro de public/screens — ex: 'home.png'. Sem isso entra um placeholder. */
+  /** Print (PNG) dentro de public/screens — ex: 'home.png'. Sem `screen` nem `video`, entra um placeholder. */
   screen?: string;
+  /**
+   * Gravação de tela (MP4) dentro de public/screens — ex: 'fluxo.mp4'. Tem prioridade sobre `screen`.
+   * Gere com `npm run screens -- <app> gravacao.mov`. Precisa ter pelo menos `seconds` de duração.
+   */
+  video?: string;
   /** Rótulo pequeno acima do título */
   eyebrow: string;
   /** Título grande */

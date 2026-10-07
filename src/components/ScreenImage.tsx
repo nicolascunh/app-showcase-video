@@ -1,10 +1,25 @@
 import React from 'react';
-import { AbsoluteFill, Img, staticFile } from 'remotion';
+import { AbsoluteFill, Freeze, Img, OffthreadVideo, staticFile } from 'remotion';
 import { config } from '../config';
 
 /** PNG da tela, ou placeholder legível enquanto ela não existe. */
-export const ScreenImage: React.FC<{ screen?: string; label: string }> = ({ screen, label }) => {
+export const ScreenImage: React.FC<{
+  screen?: string;
+  video?: string;
+  label: string;
+  /** Relógio da cena em frames: o vídeo começa quando a cena entra e congela na cópia de fechamento do loop */
+  clock: number;
+}> = ({ screen, video, label, clock }) => {
   const { brand, font } = config;
+  const fit = { width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' } as const;
+
+  if (video) {
+    return (
+      <Freeze frame={clock}>
+        <OffthreadVideo src={staticFile(`screens/${video}`)} muted style={fit} />
+      </Freeze>
+    );
+  }
 
   if (!screen) {
     return (
@@ -55,7 +70,7 @@ export const ScreenImage: React.FC<{ screen?: string; label: string }> = ({ scre
   return (
     <Img
       src={staticFile(`screens/${screen}`)}
-      style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' }}
+      style={fit}
     />
   );
 };

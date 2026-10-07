@@ -1,10 +1,17 @@
 # Contexto do repositório
 
 Gerador de **vídeo de apresentação de app**, replicável: um motor (`src/`) e uma pasta por app (`projects/<app>/`).
-Destino padrão: **TV por pen drive, em loop, sem ninguém operando**. Para criar um vídeo novo, siga a skill
-`novo-video-de-app` (`.claude/skills/novo-video-de-app/SKILL.md`).
+Duas finalidades, escolhidas em `config.mode`:
 
-## Regras que não se negociam (TV)
+- `'tv'` (padrão): TV/telão em loop, sem ninguém operando, pen drive → regras de TV abaixo
+- `'apresentacao'`: toca uma vez (reunião, proposta, site, redes); sem loop, sem restrições de TV, aceita
+  abertura/encerramento e trilha (`audio.file`)
+
+Cada cena mostra um print (`screen`) **ou** uma gravação de tela (`video`). Para criar um vídeo novo, siga a skill
+`novo-video-de-app` (`.claude/skills/novo-video-de-app/SKILL.md`). **Não rode `npm run studio`** (fica em primeiro plano):
+confira com `npm run still`.
+
+## Regras que não se negociam (modo `tv`)
 
 - **MP4 H.264 1920×1080 30fps**, com faixa de áudio AAC mesmo que muda → entregar com `npm run tv`
 - **Um único arquivo contínuo** (muitas TVs param depois do primeiro vídeo)
@@ -17,7 +24,7 @@ Destino padrão: **TV por pen drive, em loop, sem ninguém operando**. Para cria
 |---|---|
 | `projects/<app>/config.ts` | **Aparência** do app. Só sobrescreve o que difere de `src/defaults.ts` |
 | `projects/<app>/scenes.ts` | **Roteiro**: ordem, duração, textos, toques |
-| `projects/<app>/public/` | Prints (`screens/`), logo, fontes do app. Nome sem acento/espaço |
+| `projects/<app>/public/` | Prints e gravações (`screens/`), logo, fontes, trilha. Nome sem acento/espaço |
 | `src/defaults.ts` | Valores padrão de toda a aparência |
 | `src/resolve.ts` | Mescla defaults + projeto e calcula a geometria (pura; a CLI usa a mesma) |
 | `src/config.ts`, `src/scenes.ts` | Pontes para o projeto escolhido (alias `@project`, ver `remotion.config.ts`) |
@@ -37,7 +44,7 @@ Destino padrão: **TV por pen drive, em loop, sem ninguém operando**. Para cria
 - Mudança que vale para **todos** → `src/` (e rode o `doctor`/still em pelo menos dois projetos, um claro e um escuro)
 - Nunca edite `projects/` de um app para resolver algo de outro
 
-## O loop (não quebre)
+## O loop (modo `tv`; não quebre)
 
 A peça fecha sozinha: movimento de câmera é seno/cosseno com ciclo inteiro sobre a duração total, e a primeira
 cena reaparece cruzando com a última (`frozen`).
@@ -53,13 +60,13 @@ Um vertical de celular em canvas 16:9 deixa vazios laterais: por isso o aparelho
 ```bash
 npm install
 npm run new -- <app>            # cria projects/<app>
-npm run screens -- <app> *.png  # importa prints no tamanho do aparelho
+npm run screens -- <app> *.png *.mov  # importa prints e gravações no tamanho do aparelho
 npm run doctor -- <app>         # valida
 npm run studio -- <app>         # preview
 npm run still -- <app> 90       # PNG de um frame → LEIA a imagem antes de dizer que está pronto
-npm run render -- <app>         # out/<app>.mp4
-npm run tv -- <app>             # out/<app>-tv.mp4 (entregável)
-npm run loopcheck -- <app>
+npm run render -- <app>         # out/<app>.mp4 (entregável no modo apresentacao)
+npm run tv -- <app>             # out/<app>-tv.mp4 (entregável no modo tv; recusa placeholder)
+npm run loopcheck -- <app>      # só modo tv
 npm run typecheck
 ```
 

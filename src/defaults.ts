@@ -5,6 +5,8 @@ import type { ShowcaseConfig } from './types';
  * `projects/<nome>/config.ts` — tudo o que faltar vem daqui.
  */
 export const defaults: ShowcaseConfig = {
+  mode: 'tv',
+
   /** ── Cores ─────────────────────────────────────────────── */
   brand: {
     /** Destaque: rótulos, toque, fundo. Hex de 6 dígitos (o código concatena alfa). */
@@ -63,6 +65,8 @@ export const defaults: ShowcaseConfig = {
 
   /** ── Logo (opcional) ───────────────────────────────────── */
   logo: { file: undefined, height: 56, position: 'top-right' },
+
+  audio: { file: undefined, volume: 0.6 },
 
   labels: { placeholder: 'tela pendente' },
 };

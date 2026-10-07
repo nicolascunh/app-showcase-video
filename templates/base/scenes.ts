@@ -7,10 +7,11 @@ import { defineScenes } from '../../src/define';
  *    ou rode `npm run screens -- <projeto> arquivo1.png arquivo2.png ...`)
  * 2. Aponte `screen` para o nome do arquivo
  *
+ * Em vez de `screen`, use `video: 'fluxo.mp4'` para uma gravação de tela (precisa durar ≥ `seconds`).
  * Sem print ainda? Deixe `screen` de fora: entra um placeholder e o vídeo roda.
  *
- * Regras de TV: uma frase por campo, cena com 5s ou mais, e o loop fecha sozinho
- * (não crie cartela de abertura/encerramento).
+ * Modo 'tv': uma frase por campo, cena com 5s ou mais, e o loop fecha sozinho
+ * (não crie cartela de abertura/encerramento). Modo 'apresentacao': sem essas travas.
  */
 export const scenes = defineScenes([
   {

@@ -3,12 +3,12 @@
  *
  *   npm run new -- <nome>                   cria projects/<nome> a partir do template
  *   npm run list                            lista os projetos
- *   npm run screens -- <nome> a.png b.png   importa prints já no tamanho certo do aparelho
+ *   npm run screens -- <nome> a.png b.mov   importa prints e gravações de tela no tamanho do aparelho
  *   npm run doctor -- <nome>                valida roteiro, telas, regras de TV e ambiente
  *   npm run studio -- <nome>                preview com timeline
  *   npm run still -- <nome> [frame]         PNG de um frame (padrão: 90)
  *   npm run render -- <nome>                out/<nome>.mp4
- *   npm run tv -- <nome>                    out/<nome>-tv.mp4 (áudio mudo, perfil de TV/pen drive)
+ *   npm run tv -- <nome>                    out/<nome>-tv.mp4 (perfil de TV/pen drive; exige roteiro completo)
  *   npm run loopcheck -- <nome>             compara último e primeiro frame (volta do loop)
  *
  * <nome> pode ser omitido se existir um único projeto, ou se SHOWCASE_PROJECT estiver definido.
@@ -123,6 +123,31 @@ const ffmpeg = (args: string[], opts: { capture?: boolean } = {}) => {
   return r;
 };
 
+/** Duração (s) e tamanho de um arquivo de mídia, via ffprobe do sistema ou do Remotion. */
+const probe = (file: string): { duration: number; w: number; h: number; hasAudio: boolean } | null => {
+  const args = ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,width,height', '-of', 'json', file];
+  const sys = hasCmd('ffprobe');
+  const r = spawnSync(sys ? 'ffprobe' : bin('remotion'), sys ? args : ['ffprobe', ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, SHOWCASE_PROJECT: process.env.SHOWCASE_PROJECT ?? '_' },
+  });
+  if (r.status !== 0) return null;
+  try {
+    const j = JSON.parse(r.stdout);
+    const v = (j.streams ?? []).find((x: { codec_type: string }) => x.codec_type === 'video');
+    return {
+      duration: Number(j.format?.duration ?? 0),
+      w: v?.width ?? 0,
+      h: v?.height ?? 0,
+      hasAudio: (j.streams ?? []).some((x: { codec_type: string }) => x.codec_type === 'audio'),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const VIDEO_EXT = new Set(['.mov', '.mp4', '.m4v', '.webm', '.mkv']);
+
 /* ───────────── PNG ───────────── */
 
 const pngSize = (file: string): { w: number; h: number } | null => {
@@ -172,12 +197,13 @@ const cmdList = async () => {
 };
 
 const cmdScreens = async (slug: string, files: string[]) => {
-  if (!files.length) die('Uso: npm run screens -- <nome> print1.png print2.jpg ...');
+  if (!files.length) die('Uso: npm run screens -- <nome> print1.png gravacao.mov ...   (imagens e vídeos)');
   const p = await loadProject(slug);
   const { w, h } = p.device.exportSize;
   const destDir = path.join(p.dir, 'public', 'screens');
   fs.mkdirSync(destDir, { recursive: true });
 
+  let imported = 0;
   for (const f of files) {
     const src = path.resolve(f);
     if (!fs.existsSync(src)) {
@@ -191,31 +217,44 @@ const cmdScreens = async (slug: string, files: string[]) => {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '') || 'tela';
-    let out = path.join(destDir, `${base}.png`);
+    const isVideo = VIDEO_EXT.has(path.extname(src).toLowerCase());
+    const ext = isVideo ? 'mp4' : 'png';
+    let out = path.join(destDir, `${base}.${ext}`);
     if (fs.existsSync(out)) {
       // nunca sobrescreve: guarda ao lado com sufixo numérico
       let i = 2;
-      while (fs.existsSync(path.join(destDir, `${base}-${i}.png`))) i++;
-      out = path.join(destDir, `${base}-${i}.png`);
-      console.log(c.yellow(`! ${base}.png já existe, salvando como ${path.basename(out)}`));
+      while (fs.existsSync(path.join(destDir, `${base}-${i}.${ext}`))) i++;
+      out = path.join(destDir, `${base}-${i}.${ext}`);
+      console.log(c.yellow(`! ${base}.${ext} já existe, salvando como ${path.basename(out)}`));
     }
     // cobre a área e corta o excesso pelo topo (barra de status fica, rodapé cede)
+    const fit = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}:(iw-${w})/2:0`;
     const r = ffmpeg(
-      ['-y', '-loglevel', 'error', '-i', src, '-vf', `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}:(iw-${w})/2:0`, '-frames:v', '1', out],
+      isVideo
+        ? // gravação de tela: 30 fps constantes, H.264 compatível, sem áudio
+          ['-y', '-loglevel', 'error', '-i', src, '-vf', `${fit},fps=${FPS}`, '-c:v', 'libx264', '-crf', '17', '-pix_fmt', 'yuv420p', '-an', '-movflags', '+faststart', out]
+        : ['-y', '-loglevel', 'error', '-i', src, '-vf', fit, '-frames:v', '1', out],
       { capture: true },
     );
     if (r.status !== 0) {
       console.log(c.red(`✗ ${f}: ${String(r.stderr).trim().split('\n').pop()}`));
       continue;
     }
-    console.log(c.green(`✓ ${path.basename(out)}`) + c.dim(`  ${w}×${h}  (${p.device.label})`));
+    imported++;
+    const dur = isVideo ? probe(out)?.duration : undefined;
+    console.log(
+      c.green(`✓ ${path.basename(out)}`) +
+        c.dim(`  ${w}×${h}  (${p.device.label})${dur ? `  ${dur.toFixed(1)}s` : ''}`),
+    );
   }
+  if (!imported) die('Nenhum print importado.');
   console.log(c.dim(`\nAgora aponte "screen" em projects/${slug}/scenes.ts. Depois: npm run doctor -- ${slug}`));
 };
 
 type Level = 'ok' | 'warn' | 'fail';
 
-const cmdDoctor = async (slug: string): Promise<boolean> => {
+/** `final` = entrega (tv): placeholder e texto de exemplo deixam de ser aviso e viram erro. */
+const cmdDoctor = async (slug: string, opts: { final?: boolean } = {}): Promise<boolean> => {
   const results: { level: Level; msg: string }[] = [];
   const add = (level: Level, msg: string) => results.push({ level, msg });
 
@@ -234,7 +273,9 @@ const cmdDoctor = async (slug: string): Promise<boolean> => {
     return report(slug, results);
   }
   const { config, device, scenes, dir } = p;
-  add('ok', `Projeto "${slug}" carregado — ${scenes.length} cenas, ${totalSeconds(scenes)}s, ${device.label}`);
+  const tvMode = config.mode === 'tv';
+  add('ok', `Projeto "${slug}" carregado — modo ${config.mode}, ${scenes.length} cenas, ${totalSeconds(scenes)}s, ${device.label}`);
+  if (!['tv', 'apresentacao'].includes(config.mode)) add('fail', `mode "${config.mode}" inválido (use 'tv' ou 'apresentacao')`);
 
   if (scenes.length === 0) add('fail', 'Roteiro vazio.');
 
@@ -245,7 +286,7 @@ const cmdDoctor = async (slug: string): Promise<boolean> => {
     if (!s.title?.trim()) add('fail', `cena "${s.id}" sem título`);
     if (!s.eyebrow?.trim()) add('warn', `cena "${s.id}" sem eyebrow`);
     if (!s.bullet?.trim()) add('warn', `cena "${s.id}" sem bullet`);
-    if (config.cinematic.enabled && s.seconds < 5)
+    if (tvMode && config.cinematic.enabled && s.seconds < 5)
       add('warn', `cena "${s.id}" tem ${s.seconds}s — com cinema ligado, abaixo de 5s fica apertada`);
     if (s.title && s.title.length > 48)
       add('warn', `título de "${s.id}" tem ${s.title.length} caracteres — pode quebrar em 3+ linhas`);
@@ -253,8 +294,28 @@ const cmdDoctor = async (slug: string): Promise<boolean> => {
       if (t.x < 0 || t.x > 100 || t.y < 0 || t.y > 100) add('fail', `toque fora da tela em "${s.id}" (x/y são % de 0 a 100)`);
       if (t.at < 0 || t.at > s.seconds) add('fail', `toque de "${s.id}" acontece em ${t.at}s, fora da cena (${s.seconds}s)`);
     }
+    if (s.video) {
+      const vfile = path.join(dir, 'public', 'screens', s.video);
+      if (!fs.existsSync(vfile)) {
+        add('fail', `vídeo "${s.video}" (cena "${s.id}") não existe em public/screens/`);
+        continue;
+      }
+      const info = probe(vfile);
+      if (!info) {
+        add('warn', `não consegui ler "${s.video}" (ffprobe)`);
+        continue;
+      }
+      if (info.duration + 0.1 < s.seconds)
+        add('fail', `vídeo "${s.video}" tem ${info.duration.toFixed(1)}s, mas a cena "${s.id}" dura ${s.seconds}s — aumente a gravação ou reduza \`seconds\``);
+      else if (info.duration > s.seconds + 0.5)
+        add('warn', `vídeo "${s.video}" tem ${info.duration.toFixed(1)}s e a cena só ${s.seconds}s — o resto será cortado (aumente \`seconds\` se quiser tudo)`);
+      const want = device.exportSize;
+      if (Math.abs(info.w / info.h - want.w / want.h) >= 0.02)
+        add('warn', `"${s.video}" é ${info.w}×${info.h}; o ${device.label} pede proporção ${want.w}×${want.h}. Use: npm run screens -- ${slug} <gravação>`);
+      continue;
+    }
     if (!s.screen) {
-      add('warn', `cena "${s.id}" sem tela — vai aparecer placeholder`);
+      add(opts.final ? 'fail' : 'warn', `cena "${s.id}" sem tela — vai aparecer placeholder${opts.final ? ' (não entregue assim)' : ''}`);
       continue;
     }
     const file = path.join(dir, 'public', 'screens', s.screen);
@@ -275,10 +336,22 @@ const cmdDoctor = async (slug: string): Promise<boolean> => {
       add('warn', `"${s.screen}" é ${size.w}×${size.h}, menor que ${want.w}×${want.h} — vai ficar mole na TV`);
   }
 
-  for (const [k, v] of Object.entries(config.size)) {
-    if (v < 34) add('warn', `size.${k} = ${v}px — abaixo de 34px não se lê a 3 metros`);
+  if (tvMode) {
+    for (const [k, v] of Object.entries(config.size)) {
+      if (v < 34) add('warn', `size.${k} = ${v}px — abaixo de 34px não se lê a 3 metros`);
+    }
   }
-  if (config.layout.safe < 96) add('warn', `layout.safe = ${config.layout.safe}px — overscan de TV pode cortar texto`);
+  if (tvMode && config.layout.safe < 96) add('warn', `layout.safe = ${config.layout.safe}px — overscan de TV pode cortar texto`);
+  if (config.audio.file) {
+    const af = path.join(dir, 'public', config.audio.file);
+    if (!fs.existsSync(af)) add('fail', `trilha "${config.audio.file}" não existe em projects/${slug}/public/`);
+    else {
+      const ai = probe(af);
+      if (ai && ai.duration < totalSeconds(scenes))
+        add('warn', `trilha tem ${ai.duration.toFixed(0)}s e o vídeo ${totalSeconds(scenes)}s — ela vai repetir (loop)`);
+    }
+    if (tvMode) add('warn', 'modo tv com trilha: confira se a TV do evento deve mesmo tocar som');
+  }
   if (config.logo.file && !fs.existsSync(path.join(dir, 'public', config.logo.file)))
     add('fail', `logo "${config.logo.file}" não existe em projects/${slug}/public/`);
   for (const f of config.font.files)
@@ -289,7 +362,8 @@ const cmdDoctor = async (slug: string): Promise<boolean> => {
     add('fail', `brand.accentSoft "${config.brand.accentSoft}" precisa ser hex de 6 dígitos (#RRGGBB)`);
 
   const unfilled = scenes.filter((s) => /^Uma frase curta|^Mostre o que o usuário|^Feche mostrando/.test(s.bullet ?? ''));
-  if (unfilled.length) add('warn', `${unfilled.length} cena(s) ainda com o texto de exemplo do template`);
+  if (unfilled.length)
+    add(opts.final ? 'fail' : 'warn', `${unfilled.length} cena(s) ainda com o texto de exemplo do template — escreva o roteiro do app`);
 
   return report(slug, results);
 };
@@ -318,12 +392,14 @@ const cmdTv = (slug: string) => {
   const src = outFile(slug);
   if (!fs.existsSync(src)) cmdRender(slug);
   const dest = outFile(slug, '-tv');
+  const hasAudio = probe(src)?.hasAudio ?? false;
   const r = ffmpeg([
     '-y', '-loglevel', 'error', '-stats',
     '-i', src,
-    '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
+    // sem trilha própria: adiciona faixa muda (algumas TVs recusam vídeo sem áudio)
+    ...(hasAudio ? [] : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000']),
     '-c:v', 'libx264', '-profile:v', 'high', '-level', '4.0', '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart',
+    '-c:a', 'aac', '-b:a', '128k', ...(hasAudio ? [] : ['-shortest']), '-movflags', '+faststart',
     dest,
   ]);
   if (r.status !== 0) die('ffmpeg falhou ao preparar o arquivo de TV.');
@@ -339,6 +415,7 @@ Pen drive:
 
 const cmdLoopCheck = async (slug: string) => {
   const p = await loadProject(slug);
+  if (p.config.mode !== 'tv') return console.log(c.yellow('Este projeto está em modo "apresentacao" (toca uma vez, sem loop): loopcheck não se aplica.'));
   const total = Math.round(p.scenes.reduce((a, s) => a + Math.round(s.seconds * FPS), 0));
   const dir = path.join(OUT, 'loopcheck');
   fs.mkdirSync(dir, { recursive: true });
@@ -396,7 +473,7 @@ const main = async () => {
     }
     case 'tv': {
       const slug = pickSlug(rest[0]);
-      if (!(await cmdDoctor(slug))) die('Corrija os erros acima antes de renderizar.');
+      if (!(await cmdDoctor(slug, { final: true }))) die('Corrija os erros acima antes de gerar o arquivo de TV.');
       return cmdTv(slug);
     }
     case 'loopcheck':
